@@ -256,11 +256,6 @@ async function register() {
         // Firebase Authentication
         const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
         
-        // Initialize user data di localStorage (tetap pakai localStorage untuk data bisnis)
-        localStorage.setItem(`aurora_${email}_cashReceipt`, JSON.stringify([]));
-        localStorage.setItem(`aurora_${email}_purchase`, JSON.stringify([]));
-        localStorage.setItem(`aurora_${email}_payment`, JSON.stringify([]));
-        
         // Login the new user
         currentUser = email;
         localStorage.setItem('aurora_current_user', email);
@@ -300,7 +295,7 @@ function logout() {
     });
 }
 
-// ==================== UI FUNCTIONS (TIDAK BERUBAH) ====================
+// ==================== UI FUNCTIONS ====================
 
 // Set up all event listeners
 function setupEventListeners() {
@@ -434,13 +429,10 @@ function updateLanguage() {
     document.getElementById('language-toggle').textContent = currentLang === 'id' ? 'EN' : 'ID';
 }
 
-// ==================== BUSINESS DATA FUNCTIONS (TIDAK BERUBAH) ====================
+// ==================== FIRESTORE DATA FUNCTIONS ====================
 
-// [Semua function untuk cash receipt, purchase journal, cash payment, income statement
-// TIDAK PERLU DIUBAH - tetap sama seperti code awal]
-
-// Add cash receipt entry
-function addCashReceipt() {
+// Add cash receipt entry dengan Firestore
+async function addCashReceipt() {
     const date = document.getElementById('cash-receipt-date').value;
     const product = document.getElementById('cash-receipt-product').value;
     const quantity = parseInt(document.getElementById('cash-receipt-quantity').value);
@@ -454,88 +446,107 @@ function addCashReceipt() {
     const total = price * quantity;
     
     const entry = {
-        id: Date.now(),
         date,
         product,
         quantity,
-        total
+        total,
+        userId: currentUser,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_cashReceipt`) || '[]');
-    data.push(entry);
-    localStorage.setItem(`aurora_${currentUser}_cashReceipt`, JSON.stringify(data));
-    
-    // Reset form
-    document.getElementById('cash-receipt-product').selectedIndex = 0;
-    document.getElementById('cash-receipt-quantity').value = '';
-    
-    // Reload table
-    loadCashReceiptData();
+    try {
+        await firebase.firestore().collection('cashReceipts').add(entry);
+        
+        // Reset form
+        document.getElementById('cash-receipt-product').selectedIndex = 0;
+        document.getElementById('cash-receipt-quantity').value = '';
+        
+        loadCashReceiptData();
+    } catch (error) {
+        console.error('Error adding cash receipt:', error);
+        alert(currentLang === 'id' ? 'Gagal menyimpan data' : 'Failed to save data');
+    }
 }
 
-// Load cash receipt data
-function loadCashReceiptData() {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_cashReceipt`) || '[]');
-    const tbody = document.getElementById('cash-receipt-tbody');
-    tbody.innerHTML = '';
-    
-    data.forEach(entry => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${entry.date}</td>
-            <td>${entry.product}</td>
-            <td>${entry.quantity}</td>
-            <td>${formatCurrency(entry.total)}</td>
-            <td class="action-buttons">
-                <button class="edit-btn" data-id="${entry.id}">${lang[currentLang].edit}</button>
-                <button class="delete-btn" data-id="${entry.id}">${lang[currentLang].delete}</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-    
-    // Add event listeners to action buttons
-    document.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = parseInt(e.target.getAttribute('data-id'));
-            editCashReceipt(id);
+// Load cash receipt data dari Firestore
+async function loadCashReceiptData() {
+    try {
+        const snapshot = await firebase.firestore()
+            .collection('cashReceipts')
+            .where('userId', '==', currentUser)
+            .orderBy('createdAt', 'desc')
+            .get();
+        
+        const tbody = document.getElementById('cash-receipt-tbody');
+        tbody.innerHTML = '';
+        
+        snapshot.forEach(doc => {
+            const entry = { id: doc.id, ...doc.data() };
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${entry.date}</td>
+                <td>${entry.product}</td>
+                <td>${entry.quantity}</td>
+                <td>${formatCurrency(entry.total)}</td>
+                <td class="action-buttons">
+                    <button class="edit-btn" data-id="${entry.id}">${lang[currentLang].edit}</button>
+                    <button class="delete-btn" data-id="${entry.id}">${lang[currentLang].delete}</button>
+                </td>
+            `;
+            tbody.appendChild(row);
         });
-    });
-    
-    document.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = parseInt(e.target.getAttribute('data-id'));
-            deleteCashReceipt(id);
+        
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.target.getAttribute('data-id');
+                editCashReceipt(id);
+            });
         });
-    });
+        
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.target.getAttribute('data-id');
+                deleteCashReceipt(id);
+            });
+        });
+    } catch (error) {
+        console.error('Error loading cash receipts:', error);
+    }
 }
 
 // Edit cash receipt entry
-function editCashReceipt(id) {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_cashReceipt`) || '[]');
-    const entry = data.find(item => item.id === id);
-    
-    if (!entry) return;
-    
-    // Remove the entry
-    deleteCashReceipt(id);
-    
-    // Fill the form with entry data
-    document.getElementById('cash-receipt-date').value = entry.date;
-    document.getElementById('cash-receipt-product').value = entry.product;
-    document.getElementById('cash-receipt-quantity').value = entry.quantity;
+async function editCashReceipt(id) {
+    try {
+        const doc = await firebase.firestore().collection('cashReceipts').doc(id).get();
+        const entry = doc.data();
+        
+        if (!entry) return;
+        
+        // Fill the form with entry data
+        document.getElementById('cash-receipt-date').value = entry.date;
+        document.getElementById('cash-receipt-product').value = entry.product;
+        document.getElementById('cash-receipt-quantity').value = entry.quantity;
+        
+        // Delete the old entry
+        await deleteCashReceipt(id);
+    } catch (error) {
+        console.error('Error editing cash receipt:', error);
+    }
 }
 
 // Delete cash receipt entry
-function deleteCashReceipt(id) {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_cashReceipt`) || '[]');
-    const filteredData = data.filter(item => item.id !== id);
-    localStorage.setItem(`aurora_${currentUser}_cashReceipt`, JSON.stringify(filteredData));
-    loadCashReceiptData();
+async function deleteCashReceipt(id) {
+    try {
+        await firebase.firestore().collection('cashReceipts').doc(id).delete();
+        loadCashReceiptData();
+    } catch (error) {
+        console.error('Error deleting cash receipt:', error);
+        alert(currentLang === 'id' ? 'Gagal menghapus data' : 'Failed to delete data');
+    }
 }
 
-// Add purchase journal entry
-function addPurchaseJournal() {
+// Add purchase journal entry dengan Firestore
+async function addPurchaseJournal() {
     const date = document.getElementById('purchase-journal-date').value;
     const description = document.getElementById('purchase-journal-description').value;
     const quantity = parseInt(document.getElementById('purchase-journal-quantity').value);
@@ -549,92 +560,111 @@ function addPurchaseJournal() {
     const total = price * quantity;
     
     const entry = {
-        id: Date.now(),
         date,
         description,
         quantity,
         price,
-        total
+        total,
+        userId: currentUser,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_purchase`) || '[]');
-    data.push(entry);
-    localStorage.setItem(`aurora_${currentUser}_purchase`, JSON.stringify(data));
-    
-    // Reset form
-    document.getElementById('purchase-journal-description').value = '';
-    document.getElementById('purchase-journal-quantity').value = '';
-    document.getElementById('purchase-journal-price').value = '';
-    
-    // Reload table
-    loadPurchaseJournalData();
+    try {
+        await firebase.firestore().collection('purchases').add(entry);
+        
+        // Reset form
+        document.getElementById('purchase-journal-description').value = '';
+        document.getElementById('purchase-journal-quantity').value = '';
+        document.getElementById('purchase-journal-price').value = '';
+        
+        loadPurchaseJournalData();
+    } catch (error) {
+        console.error('Error adding purchase:', error);
+        alert(currentLang === 'id' ? 'Gagal menyimpan data' : 'Failed to save data');
+    }
 }
 
-// Load purchase journal data
-function loadPurchaseJournalData() {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_purchase`) || '[]');
-    const tbody = document.getElementById('purchase-journal-tbody');
-    tbody.innerHTML = '';
-    
-    data.forEach(entry => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${entry.date}</td>
-            <td>${entry.description}</td>
-            <td>${entry.quantity}</td>
-            <td>${formatCurrency(entry.price)}</td>
-            <td>${formatCurrency(entry.total)}</td>
-            <td class="action-buttons">
-                <button class="edit-btn" data-id="${entry.id}">${lang[currentLang].edit}</button>
-                <button class="delete-btn" data-id="${entry.id}">${lang[currentLang].delete}</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-    
-    // Add event listeners to action buttons
-    document.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = parseInt(e.target.getAttribute('data-id'));
-            editPurchaseJournal(id);
+// Load purchase journal data dari Firestore
+async function loadPurchaseJournalData() {
+    try {
+        const snapshot = await firebase.firestore()
+            .collection('purchases')
+            .where('userId', '==', currentUser)
+            .orderBy('createdAt', 'desc')
+            .get();
+        
+        const tbody = document.getElementById('purchase-journal-tbody');
+        tbody.innerHTML = '';
+        
+        snapshot.forEach(doc => {
+            const entry = { id: doc.id, ...doc.data() };
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${entry.date}</td>
+                <td>${entry.description}</td>
+                <td>${entry.quantity}</td>
+                <td>${formatCurrency(entry.price)}</td>
+                <td>${formatCurrency(entry.total)}</td>
+                <td class="action-buttons">
+                    <button class="edit-btn" data-id="${entry.id}">${lang[currentLang].edit}</button>
+                    <button class="delete-btn" data-id="${entry.id}">${lang[currentLang].delete}</button>
+                </td>
+            `;
+            tbody.appendChild(row);
         });
-    });
-    
-    document.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = parseInt(e.target.getAttribute('data-id'));
-            deletePurchaseJournal(id);
+        
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.target.getAttribute('data-id');
+                editPurchaseJournal(id);
+            });
         });
-    });
+        
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.target.getAttribute('data-id');
+                deletePurchaseJournal(id);
+            });
+        });
+    } catch (error) {
+        console.error('Error loading purchases:', error);
+    }
 }
 
 // Edit purchase journal entry
-function editPurchaseJournal(id) {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_purchase`) || '[]');
-    const entry = data.find(item => item.id === id);
-    
-    if (!entry) return;
-    
-    // Remove the entry
-    deletePurchaseJournal(id);
-    
-    // Fill the form with entry data
-    document.getElementById('purchase-journal-date').value = entry.date;
-    document.getElementById('purchase-journal-description').value = entry.description;
-    document.getElementById('purchase-journal-quantity').value = entry.quantity;
-    document.getElementById('purchase-journal-price').value = entry.price;
+async function editPurchaseJournal(id) {
+    try {
+        const doc = await firebase.firestore().collection('purchases').doc(id).get();
+        const entry = doc.data();
+        
+        if (!entry) return;
+        
+        // Fill the form with entry data
+        document.getElementById('purchase-journal-date').value = entry.date;
+        document.getElementById('purchase-journal-description').value = entry.description;
+        document.getElementById('purchase-journal-quantity').value = entry.quantity;
+        document.getElementById('purchase-journal-price').value = entry.price;
+        
+        // Delete the old entry
+        await deletePurchaseJournal(id);
+    } catch (error) {
+        console.error('Error editing purchase:', error);
+    }
 }
 
 // Delete purchase journal entry
-function deletePurchaseJournal(id) {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_purchase`) || '[]');
-    const filteredData = data.filter(item => item.id !== id);
-    localStorage.setItem(`aurora_${currentUser}_purchase`, JSON.stringify(filteredData));
-    loadPurchaseJournalData();
+async function deletePurchaseJournal(id) {
+    try {
+        await firebase.firestore().collection('purchases').doc(id).delete();
+        loadPurchaseJournalData();
+    } catch (error) {
+        console.error('Error deleting purchase:', error);
+        alert(currentLang === 'id' ? 'Gagal menghapus data' : 'Failed to delete data');
+    }
 }
 
-// Add cash payment entry
-function addCashPayment() {
+// Add cash payment entry dengan Firestore
+async function addCashPayment() {
     const date = document.getElementById('cash-payment-date').value;
     const description = document.getElementById('cash-payment-description').value;
     const amount = parseInt(document.getElementById('cash-payment-amount').value);
@@ -645,121 +675,147 @@ function addCashPayment() {
     }
     
     const entry = {
-        id: Date.now(),
         date,
         description,
-        amount
+        amount,
+        userId: currentUser,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_payment`) || '[]');
-    data.push(entry);
-    localStorage.setItem(`aurora_${currentUser}_payment`, JSON.stringify(data));
-    
-    // Reset form
-    document.getElementById('cash-payment-description').value = '';
-    document.getElementById('cash-payment-amount').value = '';
-    
-    // Reload table
-    loadCashPaymentData();
+    try {
+        await firebase.firestore().collection('payments').add(entry);
+        
+        // Reset form
+        document.getElementById('cash-payment-description').value = '';
+        document.getElementById('cash-payment-amount').value = '';
+        
+        loadCashPaymentData();
+    } catch (error) {
+        console.error('Error adding payment:', error);
+        alert(currentLang === 'id' ? 'Gagal menyimpan data' : 'Failed to save data');
+    }
 }
 
-// Load cash payment data
-function loadCashPaymentData() {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_payment`) || '[]');
-    const tbody = document.getElementById('cash-payment-tbody');
-    tbody.innerHTML = '';
-    
-    data.forEach(entry => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${entry.date}</td>
-            <td>${entry.description}</td>
-            <td>${formatCurrency(entry.amount)}</td>
-            <td class="action-buttons">
-                <button class="edit-btn" data-id="${entry.id}">${lang[currentLang].edit}</button>
-                <button class="delete-btn" data-id="${entry.id}">${lang[currentLang].delete}</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-    
-    // Add event listeners to action buttons
-    document.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = parseInt(e.target.getAttribute('data-id'));
-            editCashPayment(id);
+// Load cash payment data dari Firestore
+async function loadCashPaymentData() {
+    try {
+        const snapshot = await firebase.firestore()
+            .collection('payments')
+            .where('userId', '==', currentUser)
+            .orderBy('createdAt', 'desc')
+            .get();
+        
+        const tbody = document.getElementById('cash-payment-tbody');
+        tbody.innerHTML = '';
+        
+        snapshot.forEach(doc => {
+            const entry = { id: doc.id, ...doc.data() };
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${entry.date}</td>
+                <td>${entry.description}</td>
+                <td>${formatCurrency(entry.amount)}</td>
+                <td class="action-buttons">
+                    <button class="edit-btn" data-id="${entry.id}">${lang[currentLang].edit}</button>
+                    <button class="delete-btn" data-id="${entry.id}">${lang[currentLang].delete}</button>
+                </td>
+            `;
+            tbody.appendChild(row);
         });
-    });
-    
-    document.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = parseInt(e.target.getAttribute('data-id'));
-            deleteCashPayment(id);
+        
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.target.getAttribute('data-id');
+                editCashPayment(id);
+            });
         });
-    });
+        
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.target.getAttribute('data-id');
+                deleteCashPayment(id);
+            });
+        });
+    } catch (error) {
+        console.error('Error loading payments:', error);
+    }
 }
 
 // Edit cash payment entry
-function editCashPayment(id) {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_payment`) || '[]');
-    const entry = data.find(item => item.id === id);
-    
-    if (!entry) return;
-    
-    // Remove the entry
-    deleteCashPayment(id);
-    
-    // Fill the form with entry data
-    document.getElementById('cash-payment-date').value = entry.date;
-    document.getElementById('cash-payment-description').value = entry.description;
-    document.getElementById('cash-payment-amount').value = entry.amount;
+async function editCashPayment(id) {
+    try {
+        const doc = await firebase.firestore().collection('payments').doc(id).get();
+        const entry = doc.data();
+        
+        if (!entry) return;
+        
+        // Fill the form with entry data
+        document.getElementById('cash-payment-date').value = entry.date;
+        document.getElementById('cash-payment-description').value = entry.description;
+        document.getElementById('cash-payment-amount').value = entry.amount;
+        
+        // Delete the old entry
+        await deleteCashPayment(id);
+    } catch (error) {
+        console.error('Error editing payment:', error);
+    }
 }
 
 // Delete cash payment entry
-function deleteCashPayment(id) {
-    const data = JSON.parse(localStorage.getItem(`aurora_${currentUser}_payment`) || '[]');
-    const filteredData = data.filter(item => item.id !== id);
-    localStorage.setItem(`aurora_${currentUser}_payment`, JSON.stringify(filteredData));
-    loadCashPaymentData();
+async function deleteCashPayment(id) {
+    try {
+        await firebase.firestore().collection('payments').doc(id).delete();
+        loadCashPaymentData();
+    } catch (error) {
+        console.error('Error deleting payment:', error);
+        alert(currentLang === 'id' ? 'Gagal menghapus data' : 'Failed to delete data');
+    }
 }
 
-// Load income statement data
-function loadIncomeStatementData() {
-    // Get all data
-    const cashReceiptData = JSON.parse(localStorage.getItem(`aurora_${currentUser}_cashReceipt`) || '[]');
-    const purchaseData = JSON.parse(localStorage.getItem(`aurora_${currentUser}_purchase`) || '[]');
-    const paymentData = JSON.parse(localStorage.getItem(`aurora_${currentUser}_payment`) || '[]');
-    
-    // Calculate totals
-    const revenue = cashReceiptData.reduce((sum, item) => sum + item.total, 0);
-    const cogs = purchaseData.reduce((sum, item) => sum + item.total, 0);
-    const expenses = paymentData.reduce((sum, item) => sum + item.amount, 0);
-    const grossProfit = revenue - cogs;
-    const netProfit = grossProfit - expenses;
-    
-    // Update summary cards
-    document.getElementById('revenue-amount').textContent = formatCurrency(revenue);
-    document.getElementById('cogs-amount').textContent = formatCurrency(cogs);
-    document.getElementById('gross-profit-amount').textContent = formatCurrency(grossProfit);
-    document.getElementById('expenses-amount').textContent = formatCurrency(expenses);
-    document.getElementById('net-profit-amount').textContent = formatCurrency(netProfit);
-    
-    // Add color classes based on profit/loss
-    document.getElementById('gross-profit-amount').className = `amount ${grossProfit >= 0 ? 'positive' : 'negative'}`;
-    document.getElementById('net-profit-amount').className = `amount ${netProfit >= 0 ? 'positive' : 'negative'}`;
-    
-    // Load detailed tables
-    loadRevenueTable(cashReceiptData);
-    loadCogsTable(purchaseData);
-    loadExpensesTable(paymentData);
+// Load income statement data dari Firestore
+async function loadIncomeStatementData() {
+    try {
+        // Get all data concurrently
+        const [cashReceiptsSnapshot, purchasesSnapshot, paymentsSnapshot] = await Promise.all([
+            firebase.firestore().collection('cashReceipts').where('userId', '==', currentUser).get(),
+            firebase.firestore().collection('purchases').where('userId', '==', currentUser).get(),
+            firebase.firestore().collection('payments').where('userId', '==', currentUser).get()
+        ]);
+        
+        // Calculate totals
+        const revenue = cashReceiptsSnapshot.docs.reduce((sum, doc) => sum + doc.data().total, 0);
+        const cogs = purchasesSnapshot.docs.reduce((sum, doc) => sum + doc.data().total, 0);
+        const expenses = paymentsSnapshot.docs.reduce((sum, doc) => sum + doc.data().amount, 0);
+        const grossProfit = revenue - cogs;
+        const netProfit = grossProfit - expenses;
+        
+        // Update summary cards
+        document.getElementById('revenue-amount').textContent = formatCurrency(revenue);
+        document.getElementById('cogs-amount').textContent = formatCurrency(cogs);
+        document.getElementById('gross-profit-amount').textContent = formatCurrency(grossProfit);
+        document.getElementById('expenses-amount').textContent = formatCurrency(expenses);
+        document.getElementById('net-profit-amount').textContent = formatCurrency(netProfit);
+        
+        // Add color classes based on profit/loss
+        document.getElementById('gross-profit-amount').className = `amount ${grossProfit >= 0 ? 'positive' : 'negative'}`;
+        document.getElementById('net-profit-amount').className = `amount ${netProfit >= 0 ? 'positive' : 'negative'}`;
+        
+        // Load detailed tables
+        loadRevenueTable(cashReceiptsSnapshot.docs);
+        loadCogsTable(purchasesSnapshot.docs);
+        loadExpensesTable(paymentsSnapshot.docs);
+    } catch (error) {
+        console.error('Error loading income statement:', error);
+    }
 }
 
 // Load revenue table
-function loadRevenueTable(data) {
+function loadRevenueTable(docs) {
     const tbody = document.getElementById('revenue-tbody');
     tbody.innerHTML = '';
     
-    data.forEach(entry => {
+    docs.forEach(doc => {
+        const entry = doc.data();
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${entry.date}</td>
@@ -772,11 +828,12 @@ function loadRevenueTable(data) {
 }
 
 // Load COGS table
-function loadCogsTable(data) {
+function loadCogsTable(docs) {
     const tbody = document.getElementById('cogs-tbody');
     tbody.innerHTML = '';
     
-    data.forEach(entry => {
+    docs.forEach(doc => {
+        const entry = doc.data();
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${entry.date}</td>
@@ -790,11 +847,12 @@ function loadCogsTable(data) {
 }
 
 // Load expenses table
-function loadExpensesTable(data) {
+function loadExpensesTable(docs) {
     const tbody = document.getElementById('expenses-tbody');
     tbody.innerHTML = '';
     
-    data.forEach(entry => {
+    docs.forEach(doc => {
+        const entry = doc.data();
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${entry.date}</td>
