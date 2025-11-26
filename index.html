@@ -1557,5 +1557,24 @@
         // Initialize the app when DOM is loaded
         document.addEventListener('DOMContentLoaded', init);
     </script>
+    <!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
+
+<script>
+  // Firebase config - PASTE CONFIG DARI FIREBASE
+  const firebaseConfig = {
+    apiKey: "AIzaSyBc5EuNXSf3F2obLmcY4dvy9-Cg-hk-aN4",
+    authDomain: "aurora-beads-web.firebaseapp.com",
+    projectId: "aurora-beads-web",
+    storageBucket: "aurora-beads-web.firebasestorage.app",
+    messagingSenderId: "1754629106",
+    appId: "1:1754629106:web:e397b90fb7cfb669f3216b"
+  };
+  
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+</script>
 </body>
 </html>
