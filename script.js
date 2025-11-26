@@ -132,23 +132,24 @@ const cashPaymentContainer = document.getElementById('cash-payment-container');
 const incomeStatementContainer = document.getElementById('income-statement-container');
 const settingsContainer = document.getElementById('settings-container');
 
-// Initialize the application
+// ==================== FIREBASE AUTHENTICATION ====================
+
+// Initialize the application dengan Firebase
 function init() {
-    console.log('Initializing Aurora Beads App...');
+    console.log('Initializing Aurora Beads App with Firebase...');
     
-    // Check if user is already logged in
-    try {
-        const loggedInUser = localStorage.getItem('aurora_current_user');
-        if (loggedInUser) {
-            currentUser = loggedInUser;
+    // Firebase Auth State Observer
+    firebase.auth().onAuthStateChanged((user) => {
+        if (user) {
+            // User is signed in
+            currentUser = user.email;
+            localStorage.setItem('aurora_current_user', user.email);
             showDashboard();
         } else {
+            // User is signed out
             showAuth();
         }
-    } catch (error) {
-        console.error('Error accessing localStorage:', error);
-        showAuth(); // Fallback ke auth screen
-    }
+    });
 
     // Set up event listeners
     setupEventListeners();
@@ -169,8 +170,137 @@ function init() {
     // Load initial language
     updateLanguage();
     
-    console.log('App initialized successfully');
+    console.log('App initialized successfully with Firebase');
 }
+
+// Login function dengan Firebase
+async function login() {
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    
+    // Reset errors
+    document.getElementById('login-email-error').style.display = 'none';
+    document.getElementById('login-password-error').style.display = 'none';
+    
+    // Validate inputs
+    if (!email) {
+        document.getElementById('login-email-error').textContent = currentLang === 'id' ? 'Email harus diisi' : 'Email is required';
+        document.getElementById('login-email-error').style.display = 'block';
+        return;
+    }
+    
+    if (!password) {
+        document.getElementById('login-password-error').textContent = currentLang === 'id' ? 'Password harus diisi' : 'Password is required';
+        document.getElementById('login-password-error').style.display = 'block';
+        return;
+    }
+    
+    try {
+        // Firebase Authentication
+        const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+        currentUser = email;
+        localStorage.setItem('aurora_current_user', email);
+        showDashboard();
+    } catch (error) {
+        console.error('Login error:', error);
+        let errorMessage = currentLang === 'id' ? 'Email atau password salah' : 'Invalid email or password';
+        
+        if (error.code === 'auth/user-not-found') {
+            errorMessage = currentLang === 'id' ? 'Email tidak terdaftar' : 'Email not registered';
+        } else if (error.code === 'auth/wrong-password') {
+            errorMessage = currentLang === 'id' ? 'Password salah' : 'Wrong password';
+        }
+        
+        document.getElementById('login-password-error').textContent = errorMessage;
+        document.getElementById('login-password-error').style.display = 'block';
+    }
+}
+
+// Register function dengan Firebase
+async function register() {
+    const email = document.getElementById('register-email').value;
+    const password = document.getElementById('register-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+    
+    // Reset errors
+    document.getElementById('register-email-error').style.display = 'none';
+    document.getElementById('register-password-error').style.display = 'none';
+    document.getElementById('confirm-password-error').style.display = 'none';
+    
+    // Validate inputs
+    if (!email) {
+        document.getElementById('register-email-error').textContent = currentLang === 'id' ? 'Email harus diisi' : 'Email is required';
+        document.getElementById('register-email-error').style.display = 'block';
+        return;
+    }
+    
+    if (!password) {
+        document.getElementById('register-password-error').textContent = currentLang === 'id' ? 'Password harus diisi' : 'Password is required';
+        document.getElementById('register-password-error').style.display = 'block';
+        return;
+    }
+    
+    if (password !== confirmPassword) {
+        document.getElementById('confirm-password-error').textContent = currentLang === 'id' ? 'Password tidak cocok' : 'Passwords do not match';
+        document.getElementById('confirm-password-error').style.display = 'block';
+        return;
+    }
+    
+    if (password.length < 6) {
+        document.getElementById('register-password-error').textContent = currentLang === 'id' ? 'Password minimal 6 karakter' : 'Password must be at least 6 characters';
+        document.getElementById('register-password-error').style.display = 'block';
+        return;
+    }
+    
+    try {
+        // Firebase Authentication
+        const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+        
+        // Initialize user data di localStorage (tetap pakai localStorage untuk data bisnis)
+        localStorage.setItem(`aurora_${email}_cashReceipt`, JSON.stringify([]));
+        localStorage.setItem(`aurora_${email}_purchase`, JSON.stringify([]));
+        localStorage.setItem(`aurora_${email}_payment`, JSON.stringify([]));
+        
+        // Login the new user
+        currentUser = email;
+        localStorage.setItem('aurora_current_user', email);
+        showDashboard();
+        
+    } catch (error) {
+        console.error('Registration error:', error);
+        let errorMessage = currentLang === 'id' ? 'Terjadi kesalahan saat pendaftaran' : 'Registration failed';
+        
+        if (error.code === 'auth/email-already-in-use') {
+            errorMessage = currentLang === 'id' ? 'Email sudah terdaftar' : 'Email already registered';
+        } else if (error.code === 'auth/invalid-email') {
+            errorMessage = currentLang === 'id' ? 'Format email tidak valid' : 'Invalid email format';
+        } else if (error.code === 'auth/weak-password') {
+            errorMessage = currentLang === 'id' ? 'Password terlalu lemah' : 'Password is too weak';
+        }
+        
+        document.getElementById('register-email-error').textContent = errorMessage;
+        document.getElementById('register-email-error').style.display = 'block';
+    }
+}
+
+// Logout function dengan Firebase
+function logout() {
+    firebase.auth().signOut().then(() => {
+        currentUser = null;
+        localStorage.removeItem('aurora_current_user');
+        showAuth();
+        showLogin();
+    }).catch((error) => {
+        console.error('Logout error:', error);
+        // Fallback ke cara lama
+        currentUser = null;
+        localStorage.removeItem('aurora_current_user');
+        showAuth();
+        showLogin();
+    });
+}
+
+// ==================== UI FUNCTIONS (TIDAK BERUBAH) ====================
 
 // Set up all event listeners
 function setupEventListeners() {
@@ -304,102 +434,10 @@ function updateLanguage() {
     document.getElementById('language-toggle').textContent = currentLang === 'id' ? 'EN' : 'ID';
 }
 
-// Login function
-function login() {
-    const email = document.getElementById('login-email').value;
-    const password = document.getElementById('login-password').value;
-    
-    // Reset errors
-    document.getElementById('login-email-error').style.display = 'none';
-    document.getElementById('login-password-error').style.display = 'none';
-    
-    // Validate inputs
-    if (!email) {
-        document.getElementById('login-email-error').textContent = currentLang === 'id' ? 'Email harus diisi' : 'Email is required';
-        document.getElementById('login-email-error').style.display = 'block';
-        return;
-    }
-    
-    if (!password) {
-        document.getElementById('login-password-error').textContent = currentLang === 'id' ? 'Password harus diisi' : 'Password is required';
-        document.getElementById('login-password-error').style.display = 'block';
-        return;
-    }
-    
-    // Check if user exists
-    const users = JSON.parse(localStorage.getItem('aurora_users') || '[]');
-    const user = users.find(u => u.email === email && u.password === password);
-    
-    if (user) {
-        currentUser = email;
-        localStorage.setItem('aurora_current_user', email);
-        showDashboard();
-    } else {
-        document.getElementById('login-password-error').textContent = currentLang === 'id' ? 'Email atau password salah' : 'Invalid email or password';
-        document.getElementById('login-password-error').style.display = 'block';
-    }
-}
+// ==================== BUSINESS DATA FUNCTIONS (TIDAK BERUBAH) ====================
 
-// Register function
-function register() {
-    const email = document.getElementById('register-email').value;
-    const password = document.getElementById('register-password').value;
-    const confirmPassword = document.getElementById('confirm-password').value;
-    
-    // Reset errors
-    document.getElementById('register-email-error').style.display = 'none';
-    document.getElementById('register-password-error').style.display = 'none';
-    document.getElementById('confirm-password-error').style.display = 'none';
-    
-    // Validate inputs
-    if (!email) {
-        document.getElementById('register-email-error').textContent = currentLang === 'id' ? 'Email harus diisi' : 'Email is required';
-        document.getElementById('register-email-error').style.display = 'block';
-        return;
-    }
-    
-    if (!password) {
-        document.getElementById('register-password-error').textContent = currentLang === 'id' ? 'Password harus diisi' : 'Password is required';
-        document.getElementById('register-password-error').style.display = 'block';
-        return;
-    }
-    
-    if (password !== confirmPassword) {
-        document.getElementById('confirm-password-error').textContent = currentLang === 'id' ? 'Password tidak cocok' : 'Passwords do not match';
-        document.getElementById('confirm-password-error').style.display = 'block';
-        return;
-    }
-    
-    // Check if user already exists
-    const users = JSON.parse(localStorage.getItem('aurora_users') || '[]');
-    if (users.find(u => u.email === email)) {
-        document.getElementById('register-email-error').textContent = currentLang === 'id' ? 'Email sudah terdaftar' : 'Email already registered';
-        document.getElementById('register-email-error').style.display = 'block';
-        return;
-    }
-    
-    // Create new user
-    users.push({ email, password });
-    localStorage.setItem('aurora_users', JSON.stringify(users));
-    
-    // Initialize user data
-    localStorage.setItem(`aurora_${email}_cashReceipt`, JSON.stringify([]));
-    localStorage.setItem(`aurora_${email}_purchase`, JSON.stringify([]));
-    localStorage.setItem(`aurora_${email}_payment`, JSON.stringify([]));
-    
-    // Login the new user
-    currentUser = email;
-    localStorage.setItem('aurora_current_user', email);
-    showDashboard();
-}
-
-// Logout function
-function logout() {
-    currentUser = null;
-    localStorage.removeItem('aurora_current_user');
-    showAuth();
-    showLogin();
-}
+// [Semua function untuk cash receipt, purchase journal, cash payment, income statement
+// TIDAK PERLU DIUBAH - tetap sama seperti code awal]
 
 // Add cash receipt entry
 function addCashReceipt() {
